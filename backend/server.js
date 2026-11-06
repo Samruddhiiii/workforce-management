@@ -61,18 +61,26 @@ if (!isProduction) {
 }
 
 // CORS: only our React app may call the API, and it may send cookies.
+// CLIENT_URL may hold several origins separated by commas, e.g.
+//   CLIENT_URL=http://localhost:5173,https://my-app.example.com
+// A trailing "/" is removed because browsers send the origin without it
+// ("http://localhost:5173/" would never match and every request would fail).
+const allowedOrigins = process.env.CLIENT_URL.split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin: allowedOrigins,
     credentials: true,
   })
 );
 
-// Parse JSON bodies (Content-Type: application/json) and HTML form bodies.
+// Parse JSON bodies (Content-Type: application/json).
 // The size limit stops someone from sending a giant body to crash the server.
-// File uploads (multipart/form-data) are handled by Multer later, not here.
+// This API is JSON-only: there is deliberately NO urlencoded (HTML form)
+// parser. File uploads (multipart/form-data) are handled by Multer.
 app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Sessions (stored in MySQL). Must come BEFORE the routes that use req.session.
 app.use(sessionMiddleware);
@@ -115,7 +123,7 @@ async function startServer() {
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running at http://localhost:${PORT} (${process.env.NODE_ENV || 'development'})`);
-      console.log(`   Accepting requests from ${process.env.CLIENT_URL}`);
+      console.log(`   Accepting requests from ${allowedOrigins.join(', ')}`);
     });
   } catch (error) {
     console.error('❌ Could not connect to MySQL:', error.code || '', error.message);

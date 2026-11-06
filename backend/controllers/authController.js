@@ -2,20 +2,25 @@
 // Registration, login, logout, "who am I", and admin creation.
 // Works with the existing tables: users.password_hash, users.role
 // ('Admin' / 'Manager' / 'Employee'), employees.first_name / last_name.
+//
+// All routes that read a body go through requireJsonBody first, so here
+// req.body is always a plain object.
 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
 const { SESSION_COOKIE_NAME, cookieOptions } = require('../config/session');
 const { buildSessionUser } = require('../middleware/authMiddleware');
-const { bodyFormatHint } = require('../utils/requestHelpers');
 const { DB_ROLE_ADMIN, DB_ROLE_EMPLOYEE, toAppRole } = require('../utils/roles');
 const {
   cleanString,
   normalizeEmail,
   toPositiveInt,
+  checkStringFields,
+  normalizePhone,
+  splitFullName,
   validateCredentials,
-  validateEmployeeFields,
+  validateEmployeeName,
 } = require('../utils/validators');
 
 const SALT_ROUNDS = 10;
@@ -33,6 +38,11 @@ function isBcryptHash(value) {
   return typeof value === 'string' && /^\$2[aby]\$\d{2}\$/.test(value);
 }
 
+// Sends a 400 with all validation messages joined into one sentence.
+function badRequest(res, errors) {
+  return res.status(400).json({ success: false, message: errors.join('. ') });
+}
+
 // express-session's regenerate/save use callbacks; these wrappers let us use await.
 function regenerateSession(req) {
   return new Promise((resolve, reject) => {
@@ -48,27 +58,40 @@ function saveSession(req) {
 // ---------------------------------------------------------------------
 // POST /api/auth/register   (Public)
 // Always creates an EMPLOYEE: users row + employees row in ONE transaction.
-// Body: first_name, last_name?, email, password, department_id, phone?
-// (employees.department_id is NOT NULL in your table, so a department
-//  must be chosen at sign-up.)
+//
+// Body (JSON):
+//   first_name + last_name   OR   full_name     (one of the two is required)
+//   email, password, department_id             (required)
+//   phone                                      (optional)
+// employees.department_id is NOT NULL in your table, so a department must
+// be chosen at sign-up. "role" and "username" are ignored if sent.
 // ---------------------------------------------------------------------
 async function register(req, res, next) {
-  const first_name = cleanString(req.body.first_name);
-  const last_name = cleanString(req.body.last_name) || null;
-  const email = normalizeEmail(req.body.email);
-  const password = req.body.password;
-  const phone = cleanString(req.body.phone) || null;
-  const department_id = toPositiveInt(req.body.department_id);
-  // NOTE: req.body.role is deliberately ignored. Public sign-up = employee.
+  const body = req.body;
+
+  const typeErrors = checkStringFields(body, ['first_name', 'last_name', 'full_name', 'email', 'password']);
+  if (typeErrors.length > 0) return badRequest(res, typeErrors);
+
+  // Accept either first_name/last_name (matches the table) or full_name
+  let first_name = cleanString(body.first_name);
+  let last_name = cleanString(body.last_name) || null;
+  if (!first_name && body.full_name) {
+    ({ first_name, last_name } = splitFullName(body.full_name));
+  }
+
+  const email = normalizeEmail(body.email);
+  const password = body.password;
+  const department_id = toPositiveInt(body.department_id);
+  const { phone, error: phoneError } = normalizePhone(body.phone);
+  // NOTE: body.role is deliberately ignored. Public sign-up = employee.
 
   const errors = [
-    ...validateEmployeeFields({ first_name, last_name, phone }),
+    ...validateEmployeeName({ first_name, last_name }),
     ...validateCredentials({ email, password }),
   ];
-  if (!department_id) errors.push('Please select a department');
-  if (errors.length > 0) {
-    return res.status(400).json({ success: false, message: bodyFormatHint(req) || errors.join('. ') });
-  }
+  if (phoneError) errors.push(phoneError);
+  if (!department_id) errors.push('department_id is required and must be a department number, e.g. "department_id": 1');
+  if (errors.length > 0) return badRequest(res, errors);
 
   let connection;
   try {
@@ -79,7 +102,7 @@ async function register(req, res, next) {
     }
     const [departments] = await pool.query('SELECT department_id FROM departments WHERE department_id = ?', [department_id]);
     if (departments.length === 0) {
-      return res.status(400).json({ success: false, message: 'Selected department does not exist' });
+      return badRequest(res, [`Department ${department_id} does not exist`]);
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
@@ -128,19 +151,18 @@ async function register(req, res, next) {
 
 // ---------------------------------------------------------------------
 // POST /api/auth/login   (Public)
+// Body (JSON): { "email": "...", "password": "..." }
 // ---------------------------------------------------------------------
 async function login(req, res, next) {
+  const typeErrors = checkStringFields(req.body, ['email', 'password']);
+  if (typeErrors.length > 0) return badRequest(res, typeErrors);
+
   const email = normalizeEmail(req.body.email);
-  const password = typeof req.body.password === 'string' ? req.body.password : '';
+  const password = req.body.password || '';
 
   if (!email || !password) {
-    // Say exactly what is wrong: empty body / wrong body type / which field is missing
-    const hint = bodyFormatHint(req);
     const missing = [!email && 'email', !password && 'password'].filter(Boolean).join(' and ');
-    return res.status(400).json({
-      success: false,
-      message: hint || `Missing ${missing}. Send JSON like {"email": "...", "password": "..."}`,
-    });
+    return badRequest(res, [`Missing ${missing}. Send JSON like {"email": "...", "password": "..."}`]);
   }
 
   // Same message for "no such email" and "wrong password", so the response
@@ -159,12 +181,13 @@ async function login(req, res, next) {
     const user = rows[0];
 
     // Placeholder (non-bcrypt) passwords can never match.
-    const storedHash = user && isBcryptHash(user.password_hash) ? user.password_hash : DUMMY_HASH;
-    const passwordMatches = await bcrypt.compare(password, storedHash);
-    if (!user || storedHash === DUMMY_HASH || !passwordMatches) {
+    const hasRealHash = user && isBcryptHash(user.password_hash);
+    const passwordMatches = await bcrypt.compare(password, hasRealHash ? user.password_hash : DUMMY_HASH);
+    if (!hasRealHash || !passwordMatches) {
       return res.status(401).json({ success: false, message: INVALID_LOGIN });
     }
 
+    // Correct password from here on, so it is safe to explain account problems
     if (toAppRole(user.role) === 'employee') {
       if (!user.employee_id) {
         return res.status(403).json({ success: false, message: 'Employee profile not found. Please contact the administrator.' });
@@ -176,6 +199,7 @@ async function login(req, res, next) {
 
     // New session ID on every login. This prevents "session fixation":
     // an attacker can't plant a known session ID before the victim logs in.
+    // It also replaces any previous login in the same browser/Postman.
     await regenerateSession(req);
     req.session.user = buildSessionUser(user);
     await saveSession(req); // make sure it is stored in MySQL before we reply
@@ -187,13 +211,21 @@ async function login(req, res, next) {
 }
 
 // ---------------------------------------------------------------------
-// POST /api/auth/logout   (Auth)
+// POST /api/auth/logout   (Public, safe to call any time)
+// Logout does not require a valid session: if the session already expired,
+// the client still needs a 200 and the stale cookie removed. Calling it
+// twice is harmless ("idempotent").
 // ---------------------------------------------------------------------
 function logout(req, res, next) {
+  const wasLoggedIn = Boolean(req.session && req.session.user);
+
   req.session.destroy((err) => {
     if (err) return next(err);
     res.clearCookie(SESSION_COOKIE_NAME, cookieOptions);
-    res.json({ success: true, message: 'Logged out successfully' });
+    res.json({
+      success: true,
+      message: wasLoggedIn ? 'Logged out successfully' : 'You were already logged out',
+    });
   });
 }
 
@@ -210,16 +242,17 @@ function getMe(req, res) {
 // POST /api/auth/admins   (Admin only)
 // The ONLY way to create another admin through the API.
 // Admins have no employees row, so this is a single insert.
-// Body: email, password
+// Body (JSON): { "email": "...", "password": "..." }
 // ---------------------------------------------------------------------
 async function createAdmin(req, res, next) {
+  const typeErrors = checkStringFields(req.body, ['email', 'password']);
+  if (typeErrors.length > 0) return badRequest(res, typeErrors);
+
   const email = normalizeEmail(req.body.email);
   const password = req.body.password;
 
   const errors = validateCredentials({ email, password });
-  if (errors.length > 0) {
-    return res.status(400).json({ success: false, message: errors.join('. ') });
-  }
+  if (errors.length > 0) return badRequest(res, errors);
 
   try {
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
