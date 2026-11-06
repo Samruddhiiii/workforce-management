@@ -8,8 +8,6 @@
 
 require('dotenv').config({ quiet: true });
 
-const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -17,6 +15,7 @@ const { testConnection } = require('./config/db');
 const { sessionMiddleware } = require('./config/session');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const { requestLogger } = require('./middleware/requestLogger');
+const { ensureUploadFolders } = require('./utils/files');
 
 // ---------------------------------------------------------------------
 // 1. Check required environment variables (fail fast with a clear message)
@@ -35,9 +34,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // ---------------------------------------------------------------------
 // 2. Make sure the upload folders exist (Git does not store empty folders)
 // ---------------------------------------------------------------------
-['profiles', 'attendance', 'documents'].forEach((folder) => {
-  fs.mkdirSync(path.join(__dirname, 'uploads', folder), { recursive: true });
-});
+ensureUploadFolders();
 
 // ---------------------------------------------------------------------
 // 3. Create and configure the Express app
@@ -105,7 +102,10 @@ app.get('/api/health', async (req, res) => {
 
 // Module routes (each file handles one feature)
 app.use('/api/auth', require('./routes/authRoutes'));
-// Phase 4 adds: employees, departments, attendance, tasks, documents, dashboard, files
+app.use('/api/departments', require('./routes/departmentRoutes'));
+app.use('/api/employees', require('./routes/employeeRoutes'));
+app.use('/api/files', require('./routes/fileRoutes'));
+// Phase 4 Part 2 adds: attendance, tasks, documents, dashboard
 
 // ---------------------------------------------------------------------
 // 5. 404 + error handlers (must be LAST)

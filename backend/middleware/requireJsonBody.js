@@ -59,4 +59,20 @@ function requireJsonBody(req, res, next) {
   next();
 }
 
-module.exports = { requireJsonBody };
+// For endpoints that accept EITHER JSON OR a file upload (multipart/form-data),
+// e.g. PUT /api/employees/me (text fields, optionally with a profile photo).
+// Put it BEFORE the upload middleware; Multer then parses the multipart body.
+function requireJsonOrMultipartBody(req, res, next) {
+  const type = (req.headers['content-type'] || '').toLowerCase().split(';')[0].trim();
+  if (type === 'multipart/form-data') return next();
+
+  if (hasBody(req) && type !== 'application/json') {
+    const hint = type.startsWith('application/x-www-form-urlencoded')
+      ? 'The body was sent as x-www-form-urlencoded. Use JSON, or form-data when uploading a file.'
+      : contentTypeHint(type).replace('This API expects JSON', 'Use JSON, or form-data when uploading a file');
+    return res.status(415).json({ success: false, message: hint });
+  }
+  return requireJsonBody(req, res, next);
+}
+
+module.exports = { requireJsonBody, requireJsonOrMultipartBody };

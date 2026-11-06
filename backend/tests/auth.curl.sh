@@ -20,64 +20,9 @@
 # Needs: curl, mysql (MySQL client on PATH), node. Reads DB settings from .env.
 # =====================================================================
 
-set -u
-cd "$(dirname "$0")/.." || exit 1          # run from backend/
-
-BASE="${1:-http://localhost:5000/api}"
+. "$(dirname "$0")/lib.sh"   # BASE, JSON, sql, t, section, finish, cleanup
 AUTH="$BASE/auth"
-JSON='Content-Type: application/json'
-TMP="$(mktemp -d)"
-PASS=0; FAIL=0
-
-# --- database helper (credentials from .env, password via env var) ----
-set -a; . ./.env; set +a
-export MYSQL_PWD="$DB_PASSWORD"
-sql() { mysql -u"$DB_USER" -h"$DB_HOST" -P"${DB_PORT:-3306}" "$DB_NAME" -N -e "$1"; }
-
-cleanup() {
-  sql "DELETE FROM sessions WHERE data LIKE '%@wms-test.local%';
-       DELETE e FROM employees e JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local';
-       DELETE FROM users WHERE email LIKE '%@wms-test.local';" 2>/dev/null
-  rm -rf "$TMP"
-}
-trap cleanup EXIT
-
-# --- test helper ------------------------------------------------------
-# t "name" EXPECTED_STATUS "text the body must contain" [curl args...]
-# Also checks: response is JSON with a boolean "success" that matches the
-# status (2xx -> true, otherwise false), and that no password hash leaks.
-t() {
-  local name="$1" expected="$2" mustContain="$3"; shift 3
-  local status body problems=""
-  status=$(curl -s -o "$TMP/body" -w '%{http_code}' "$@")
-  body=$(cat "$TMP/body")
-
-  [ "$status" = "$expected" ] || problems+=" status=$status (expected $expected);"
-  [ -z "$mustContain" ] || [[ "$body" == *"$mustContain"* ]] || problems+=" body missing \"$mustContain\";"
-  if [[ "$expected" == 2* ]]; then
-    [[ "$body" == *'"success":true'* ]] || problems+=' "success" should be true;'
-  else
-    [[ "$body" == *'"success":false'* ]] || problems+=' "success" should be false;'
-  fi
-  [[ "$body" != *password_hash* && "$body" != *'$2b$'* ]] || problems+=' PASSWORD HASH LEAKED;'
-
-  if [ -z "$problems" ]; then
-    PASS=$((PASS + 1)); printf '  \e[32mPASS\e[0m %-62s %s\n' "$name" "$status"
-  else
-    FAIL=$((FAIL + 1)); printf '  \e[31mFAIL\e[0m %-62s %s\n' "$name" "$status"
-    echo "         problems:$problems"
-    echo "         body: ${body:0:300}"
-  fi
-}
-
-section() { echo; echo "== $1"; }
-
-# --- preconditions ----------------------------------------------------
-echo "Testing $AUTH"
-if ! curl -s -o /dev/null "$BASE/health"; then
-  echo "Cannot reach $BASE - start the server first (npm run dev)."; exit 1
-fi
-cleanup; TMP="$(mktemp -d)"   # remove leftovers from an interrupted earlier run
+require_server
 
 # --- test accounts ----------------------------------------------------
 ADMIN_EMAIL=admin@wms-test.local;   ADMIN_PW='AdminPass123'
@@ -224,6 +169,4 @@ FOREIGN=$(curl -s -i -X OPTIONS -H 'Origin: https://evil.example' -H 'Access-Con
 if [ "$ALLOWED" = "1" ] && [ "$FOREIGN" = "0" ]; then PASS=$((PASS+1)); echo "  PASS X05 CORS allows CLIENT_URL with credentials, rejects other origins";
 else FAIL=$((FAIL+1)); echo "  FAIL X05 CORS (allowed=$ALLOWED foreign=$FOREIGN)"; fi
 
-echo
-echo "Result: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ]
+finish

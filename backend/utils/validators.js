@@ -113,8 +113,23 @@ function validateEmployeeName({ first_name, last_name }) {
   return errors;
 }
 
+// True for a real calendar date written as YYYY-MM-DD (rejects 2026-02-30).
+function isValidDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+// In SQL LIKE, "%" and "_" are wildcards. Escape them so a search for
+// "50%" looks for the text "50%" instead of "anything starting with 50".
+function escapeLike(text) {
+  return text.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 module.exports = {
   MIN_PASSWORD_LENGTH,
+  isValidDate,
+  escapeLike,
   cleanString,
   normalizeEmail,
   isValidEmail,
