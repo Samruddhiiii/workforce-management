@@ -1,0 +1,18 @@
+# Dependencies (re-created by "npm install")
+node_modules/
+
+# Secrets - never commit these
+.env
+
+# Uploaded files: ignore everything inside the upload folders,
+# but keep the empty folders themselves (via .gitkeep files)
+uploads/**/*
+!uploads/*/
+!uploads/**/.gitkeep
+
+# Logs and OS junk
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
+database/backup_*.sql
