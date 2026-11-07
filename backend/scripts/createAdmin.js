@@ -12,7 +12,7 @@
 // If the email already exists, nothing is changed
 // (use "npm run set-password" to change an existing account's password).
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');

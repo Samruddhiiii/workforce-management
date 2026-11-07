@@ -11,7 +11,7 @@
 // With them, the full flow is checked: login -> /me -> logout -> /me.
 // Nothing is written to the database.
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 const parseArgs = require('./parseArgs');
 
 const args = parseArgs(process.argv.slice(2));

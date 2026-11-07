@@ -6,7 +6,7 @@
 //   4. adds 404 + error handlers
 //   5. tests the database, then starts listening
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true }); // works from any folder
 
 const express = require('express');
 const cors = require('cors');

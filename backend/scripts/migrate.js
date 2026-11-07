@@ -16,7 +16,7 @@
 //     employees.employee_id, so the Admin (who has no employee row) can
 //     create tasks. Existing values are converted to the matching user_id.
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 const pool = require('../config/db');
 
 const DB = process.env.DB_NAME;

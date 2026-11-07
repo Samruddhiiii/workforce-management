@@ -12,7 +12,7 @@ You need two terminals. Start the backend first.
 # Terminal 1 - backend
 cd backend
 npm install        # first time only
-npm run dev        # listens on PORT from backend/.env
+npm run dev        # http://localhost:5000 (PORT in backend/.env)
 
 # Terminal 2 - frontend
 cd frontend
@@ -26,11 +26,12 @@ browser treats the two names as different sites (the login cookie would be dropp
 
 ### Which backend address does the frontend use?
 
-By default `http://localhost:5000/api`. If your backend runs on a different
-port (check `PORT` in `backend/.env`), create `frontend/.env`:
+`http://localhost:5000/api`, which matches `PORT=5000` in `backend/.env`.
+Nothing to configure. Only if you move the backend to another port, create
+`frontend/.env` with the new address, for example:
 
 ```
-VITE_API_URL=http://localhost:5001/api
+VITE_API_URL=http://localhost:5050/api
 ```
 
 and restart `npm run dev` (Vite reads `.env` only at start-up).
