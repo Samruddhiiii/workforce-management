@@ -11,7 +11,7 @@
 // With them, the full flow is checked: login -> /me -> logout -> /me.
 // Nothing is written to the database.
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 const parseArgs = require('./parseArgs');
 
 const args = parseArgs(process.argv.slice(2));
@@ -96,9 +96,9 @@ function check(name, result, expectedStatus, extraCheck) {
   check('POST /login (wrong URL) -> 404', await send('POST', '/login', { json: {} }), 404);
   check('Empty body -> 400', await send('POST', '/auth/login', { rawBody: '' }), 400);
   check(
-    'Body sent as Text, not JSON -> 400 with hint',
+    'Body sent as Text, not JSON -> 415 with hint',
     await send('POST', '/auth/login', { rawBody: '{"email":"a@b.com","password":"x"}', contentType: 'text/plain' }),
-    400,
+    415,
     (b) => (b.message.includes('Text') ? null : 'message should mention the Text body type')
   );
   check(

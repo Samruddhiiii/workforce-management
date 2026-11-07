@@ -4,7 +4,7 @@
 // than opening a new connection for every request.
 
 const mysql = require('mysql2/promise'); // promise API -> we can use async/await
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST,

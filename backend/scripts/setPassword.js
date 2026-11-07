@@ -10,7 +10,7 @@
 //
 // The password is hashed with bcrypt; the plain text is never stored.
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), quiet: true }); // works from any folder
 
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');

@@ -6,10 +6,8 @@
 //   4. adds 404 + error handlers
 //   5. tests the database, then starts listening
 
-require('dotenv').config({ quiet: true });
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true }); // works from any folder
 
-const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -17,6 +15,7 @@ const { testConnection } = require('./config/db');
 const { sessionMiddleware } = require('./config/session');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const { requestLogger } = require('./middleware/requestLogger');
+const { ensureUploadFolders } = require('./utils/files');
 
 // ---------------------------------------------------------------------
 // 1. Check required environment variables (fail fast with a clear message)
@@ -35,9 +34,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // ---------------------------------------------------------------------
 // 2. Make sure the upload folders exist (Git does not store empty folders)
 // ---------------------------------------------------------------------
-['profiles', 'attendance', 'documents'].forEach((folder) => {
-  fs.mkdirSync(path.join(__dirname, 'uploads', folder), { recursive: true });
-});
+ensureUploadFolders();
 
 // ---------------------------------------------------------------------
 // 3. Create and configure the Express app
@@ -61,18 +58,26 @@ if (!isProduction) {
 }
 
 // CORS: only our React app may call the API, and it may send cookies.
+// CLIENT_URL may hold several origins separated by commas, e.g.
+//   CLIENT_URL=http://localhost:5173,https://my-app.example.com
+// A trailing "/" is removed because browsers send the origin without it
+// ("http://localhost:5173/" would never match and every request would fail).
+const allowedOrigins = process.env.CLIENT_URL.split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    origin: allowedOrigins,
     credentials: true,
   })
 );
 
-// Parse JSON bodies (Content-Type: application/json) and HTML form bodies.
+// Parse JSON bodies (Content-Type: application/json).
 // The size limit stops someone from sending a giant body to crash the server.
-// File uploads (multipart/form-data) are handled by Multer later, not here.
+// This API is JSON-only: there is deliberately NO urlencoded (HTML form)
+// parser. File uploads (multipart/form-data) are handled by Multer.
 app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Sessions (stored in MySQL). Must come BEFORE the routes that use req.session.
 app.use(sessionMiddleware);
@@ -97,7 +102,13 @@ app.get('/api/health', async (req, res) => {
 
 // Module routes (each file handles one feature)
 app.use('/api/auth', require('./routes/authRoutes'));
-// Phase 4 adds: employees, departments, attendance, tasks, documents, dashboard, files
+app.use('/api/departments', require('./routes/departmentRoutes'));
+app.use('/api/employees', require('./routes/employeeRoutes'));
+app.use('/api/attendance', require('./routes/attendanceRoutes'));
+app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/documents', require('./routes/documentRoutes'));
+app.use('/api/dashboard', require('./routes/dashboardRoutes'));
+app.use('/api/files', require('./routes/fileRoutes'));
 
 // ---------------------------------------------------------------------
 // 5. 404 + error handlers (must be LAST)
@@ -115,7 +126,7 @@ async function startServer() {
 
     app.listen(PORT, () => {
       console.log(`🚀 Server running at http://localhost:${PORT} (${process.env.NODE_ENV || 'development'})`);
-      console.log(`   Accepting requests from ${process.env.CLIENT_URL}`);
+      console.log(`   Accepting requests from ${allowedOrigins.join(', ')}`);
     });
   } catch (error) {
     console.error('❌ Could not connect to MySQL:', error.code || '', error.message);

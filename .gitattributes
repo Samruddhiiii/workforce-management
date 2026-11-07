@@ -1,0 +1,5 @@
+# Let Git normalise line endings for text files...
+* text=auto
+
+# ...but shell scripts must always use LF, or bash fails with "$'\r': command not found"
+*.sh text eol=lf
