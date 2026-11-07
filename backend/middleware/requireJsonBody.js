@@ -75,4 +75,19 @@ function requireJsonOrMultipartBody(req, res, next) {
   return requireJsonBody(req, res, next);
 }
 
-module.exports = { requireJsonBody, requireJsonOrMultipartBody };
+// For endpoints whose main input IS a file (mark attendance, upload a
+// document). Put it BEFORE the upload middleware. Anything that is not
+// multipart/form-data gets a 415 that explains how to send a file.
+function requireMultipartBody(fileField) {
+  return (req, res, next) => {
+    const type = (req.headers['content-type'] || '').toLowerCase().split(';')[0].trim();
+    if (type === 'multipart/form-data') return next();
+    return res.status(415).json({
+      success: false,
+      message: `This endpoint needs a file upload. Send the body as form-data with the file in the field "${fileField}" ` +
+        '(Postman: Body -> form-data, set the key type to File).',
+    });
+  };
+}
+
+module.exports = { requireJsonBody, requireJsonOrMultipartBody, requireMultipartBody };

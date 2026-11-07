@@ -104,8 +104,11 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/departments', require('./routes/departmentRoutes'));
 app.use('/api/employees', require('./routes/employeeRoutes'));
+app.use('/api/attendance', require('./routes/attendanceRoutes'));
+app.use('/api/tasks', require('./routes/taskRoutes'));
+app.use('/api/documents', require('./routes/documentRoutes'));
+app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/files', require('./routes/fileRoutes'));
-// Phase 4 Part 2 adds: attendance, tasks, documents, dashboard
 
 // ---------------------------------------------------------------------
 // 5. 404 + error handlers (must be LAST)

@@ -26,20 +26,33 @@ PASS=0; FAIL=0
 
 set -a; . ./.env; set +a
 export MYSQL_PWD="$DB_PASSWORD"
-sql() { mysql -u"$DB_USER" -h"$DB_HOST" -P"${DB_PORT:-3306}" "$DB_NAME" -N -e "$1"; }
+# The Windows mysql client ends rows with CR+LF; tr removes the CR so values
+# compare correctly and file paths in a list do not end in an invisible CR.
+sql() { mysql -u"$DB_USER" -h"$DB_HOST" -P"${DB_PORT:-3306}" "$DB_NAME" -N -e "$1" | tr -d '\r'; }
 
 # Test accounts use emails ending in @wms-test.local and departments named
 # "ZZ Test ..."; cleanup removes exactly those (plus their uploaded files).
 cleanup_test_data() {
   local files
   files=$(sql "SELECT e.profile_photo FROM employees e JOIN users u USING(user_id)
-               WHERE u.email LIKE '%@wms-test.local' AND e.profile_photo IS NOT NULL" 2>/dev/null)
+                WHERE u.email LIKE '%@wms-test.local' AND e.profile_photo IS NOT NULL
+               UNION ALL
+               SELECT a.attendance_photo FROM attendance a JOIN employees e USING(employee_id)
+                 JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local' AND a.attendance_photo IS NOT NULL
+               UNION ALL
+               SELECT d.file_path FROM employee_documents d JOIN employees e USING(employee_id)
+                 JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local' AND d.file_path IS NOT NULL" 2>/dev/null)
   for f in $files; do
-    case "$f" in uploads/profiles/*) rm -f "./$f" ;; esac
+    case "$f" in uploads/profiles/*|uploads/attendance/*|uploads/documents/*) rm -f "./$f" ;; esac
   done
   sql "DELETE FROM sessions WHERE data LIKE '%@wms-test.local%';
        DELETE t FROM tasks t JOIN employees e ON e.employee_id = t.assigned_to
          JOIN users u ON u.user_id = e.user_id WHERE u.email LIKE '%@wms-test.local';
+       DELETE t FROM tasks t JOIN users u ON u.user_id = t.assigned_by WHERE u.email LIKE '%@wms-test.local';
+       DELETE a FROM attendance a JOIN employees e USING(employee_id)
+         JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local';
+       DELETE d FROM employee_documents d JOIN employees e USING(employee_id)
+         JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local';
        DELETE e FROM employees e JOIN users u USING(user_id) WHERE u.email LIKE '%@wms-test.local';
        DELETE FROM users WHERE email LIKE '%@wms-test.local';
        DELETE FROM departments WHERE department_name LIKE 'ZZ Test%';" 2>/dev/null
@@ -59,7 +72,7 @@ t() {
   : > "$TMP/body"; : > "$TMP/headers"   # never let a previous response leak into this test
   status=$(curl -s -S -D "$TMP/headers" -o "$TMP/body" -w '%{http_code}' "$@" 2>"$TMP/curl_error")
   curl_exit=$?
-  body=$(cat "$TMP/body")
+  body=$(tr -d '\0' < "$TMP/body")   # tr: binary files may contain NUL bytes
 
   # curl itself failed (file not found, connection refused...) - not a server answer
   [ "$curl_exit" -eq 0 ] || problems+=" curl error $curl_exit: $(cat "$TMP/curl_error");"
@@ -89,12 +102,22 @@ check() {
   if "$@"; then pass_line "$name"; else fail_line "$name"; fi
 }
 
-# Value of a JSON field in the last response body, e.g. json_field employee_id
+# Value of a field inside "data" of the last response body.
+#   json_field employee_id          -> data.employee_id
+#   json_field today.attendance_id  -> data.today.attendance_id
+#   json_field length               -> number of items when data is a list
 json_field() {
   node -e "const b=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
-           const v=(b.data && b.data[process.argv[2]]); console.log(v === undefined || v === null ? '' : v)" \
+           let v=b.data; for (const k of process.argv[2].split('.')) v = (v === undefined || v === null) ? v : v[k];
+           console.log(v === undefined || v === null ? '' : v)" \
     "$TMP/body" "$1"
 }
+
+# True if the last response body does NOT contain the text
+body_lacks() { ! grep -qF -- "$1" "$TMP/body"; }
+
+# Number of uploaded files in a folder (ignoring .gitkeep)
+count_files() { ls "$1" | grep -vc '^.gitkeep$'; }
 
 section() { echo; echo "== $1"; }
 
