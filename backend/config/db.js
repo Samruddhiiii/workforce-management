@@ -23,6 +23,17 @@ const pool = mysql.createPool({
   dateStrings: true,
 });
 
+// Optional: run MySQL's clock (NOW(), CURDATE(), CURTIME()) in a fixed time
+// zone, e.g. DB_TIMEZONE=+05:30 on Railway, whose MySQL server uses UTC.
+// Not set (local development) -> the MySQL server's own time zone.
+if (process.env.DB_TIMEZONE) {
+  pool.pool.on('connection', (connection) => {
+    connection.query('SET time_zone = ?', [process.env.DB_TIMEZONE], (error) => {
+      if (error) console.error('⚠️  Could not set DB_TIMEZONE:', error.message);
+    });
+  });
+}
+
 // Runs a tiny query to prove the credentials and database are correct.
 // server.js calls this at startup so a bad .env fails loudly and early.
 async function testConnection() {

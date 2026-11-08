@@ -13,7 +13,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads');
+// UPLOAD_DIR (optional) moves the files elsewhere, e.g. a persistent volume
+// in production (/data/uploads on Railway). Not set -> backend/uploads.
+// The stored path in MySQL stays 'uploads/<folder>/<file>' either way.
+const UPLOAD_ROOT = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '..', 'uploads');
 const UPLOAD_FOLDERS = ['profiles', 'attendance', 'documents'];
 
 // Only names we generate ourselves: letters, digits, dot, dash, underscore.
